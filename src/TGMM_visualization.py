@@ -8,6 +8,72 @@ plt.rcParams.update({'font.size': 20})
 # plt.style.use('dark_background')
 rc('pdf', fonttype=42)
 
+def xml2numpy(path, keys = ['old_id','old_parentid','cell_id','parent_id','lineage','timepoint','X','Y','Z','splitScore']):
+    flist = glob.glob(os.path.join(path,'*.xml'))
+    flist.sort()
+    # flist = flist[::-1]
+
+    data = [[] for k in keys]
+
+    max_cell_id = -1
+    max_lineage_id = -1
+    for t, f in enumerate(flist):
+        tree = ET.parse(f)
+        root = tree.getroot()
+        print('#'*20)
+        print(t,f, 'n cells:',len(root))
+        print('#'*20)
+        if t>0:
+            prev_old_ids = [data[keys.index('old_id')][i] for i in range(len(data[0])) if data[keys.index('timepoint')][i]==(t-1)]
+            prev_cell_ids = [data[keys.index('cell_id')][i] for i in range(len(data[0])) if data[keys.index('timepoint')][i]==(t-1)]
+            prev_lineage = [data[keys.index('lineage')][i] for i in range(len(data[0])) if data[keys.index('timepoint')][i]==(t-1)]
+            prev_parent = [data[keys.index('parent_id')][i] for i in range(len(data[0])) if data[keys.index('timepoint')][i]==(t-1)]
+
+        parents = [int(i.attrib['parent']) for i in root]
+        for idx,el in enumerate(root):
+            # print(idx)
+            cell = [-1 for k in keys]
+            cell[keys.index('timepoint')] = t
+            pos = np.array([float(p) for p in el.attrib['m'].split(' ')[:-1]])
+            scale = np.array([float(s) for s in el.attrib['scale'].split(' ')[:-1]])
+            cell[keys.index('X')] = (pos*scale)[0]
+            cell[keys.index('Y')] = (pos*scale)[1]
+            cell[keys.index('Z')] = (pos*scale)[2]
+            cell[keys.index('splitScore')] = int(el.attrib['splitScore'])
+            cell[keys.index('old_id')] = int(el.attrib['id'])
+            cell[keys.index('old_parentid')] = int(el.attrib['parent'])
+            # assign a unique cell_id
+            parent = int(el.attrib['parent'])
+            if parent == -1:
+                # if it's a new track, create a new cell id and a new lineage
+                max_cell_id += 1
+                max_lineage_id += 1
+                cell[keys.index('cell_id')] = max_cell_id
+                cell[keys.index('lineage')] = max_lineage_id
+                cell[keys.index('parent_id')] = parent
+            else:
+                if np.sum([i==parent for i in parents])==2:
+                    # if it's a daughter cell, assign new unique cell_id and same lineage
+                    max_cell_id += 1
+                    cell[keys.index('cell_id')] = max_cell_id
+                    cell[keys.index('parent_id')] = prev_cell_ids[prev_old_ids.index(parent)]
+                    cell[keys.index('lineage')] = prev_lineage[prev_old_ids.index(parent)]
+                elif np.sum([i==parent for i in parents])==1:
+                    # if it's the continuation of a tracked cell, copy the cell_id of the previous timepoint
+                    cell[keys.index('cell_id')] = prev_cell_ids[prev_old_ids.index(parent)]
+                    cell[keys.index('parent_id')] = prev_parent[prev_old_ids.index(parent)]
+                    cell[keys.index('lineage')] = prev_lineage[prev_old_ids.index(parent)]
+                else:
+                    print('ERROR!!!!')
+
+            # print(cell)
+            for idx, val in enumerate(cell):
+                data[idx].append(val)
+    data = np.transpose(np.array(data))
+
+    np.savetxt('file.txt',data, fmt='%i %i %i %i %i %i %1.4f %1.4f %1.4f %i')
+    return data
+
 def set_white_plot(ax):
     ax.spines['bottom'].set_color('white')
     ax.spines['top'].set_color('white')
@@ -194,6 +260,7 @@ def radial_distribution(data, cm=None, ax=None,color='blue'):
 path = os.path.join('..','GMEMtracking3D_2019_9_3_15_56_17','XML_finalResult_lht_bckgRm')
 keys = ['old_id','old_parentid','cell_id','parent_id','lineage','timepoint','X','Y','Z','splitScore']# data = xml2numpy(path)
 
+data = xml2numpy(path)
 
 ### LOAD DATA
 data_raw = np.loadtxt('..\\raw_results\\TGMM_plots\\file.txt')
